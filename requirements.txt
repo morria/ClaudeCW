@@ -1,0 +1,11 @@
+# Amateur Radio CW Practice Bot Requirements
+
+# Claude AI API
+anthropic>=0.39.0
+
+# Audio generation and playback
+numpy>=1.24.0
+pyaudio>=0.2.14
+
+# Configuration file handling
+pyyaml>=6.0

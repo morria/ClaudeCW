@@ -1,0 +1,17 @@
+# Amateur Radio CW Practice Bot Configuration
+# Copy this file to config.yaml and add your API key
+
+# Claude API Configuration
+claude:
+  api_key: "your-api-key-here"  # Replace with your actual API key from https://console.anthropic.com/
+
+# Morse Code Settings
+morse:
+  wpm: 20                    # Words per minute (standard timing)
+  farnsworth_wpm: 15         # Effective WPM (character spacing - lower means more spacing)
+  frequency: 700             # Audio frequency in Hz (typical CW tone)
+
+# Audio Settings
+audio:
+  sample_rate: 44100         # Audio sample rate
+  volume: 0.3                # Volume (0.0 to 1.0)
