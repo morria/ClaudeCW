@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from morse_generator import MorseGenerator
+from morse_generator import MorseGenerator, PlaybackControl
 from radio_operator import RadioOperator
 from curses_chat import CursesChatInterface
 
@@ -34,6 +34,8 @@ class CWBotCursesInterface:
         self.operator: Optional[RadioOperator] = None
         self.is_first_message = True
         self.morse_playing = False
+        self.morse_paused = False
+        self.playback_thread: Optional[threading.Thread] = None
 
         # Initialize components
         self._setup_components()
@@ -86,23 +88,39 @@ class CWBotCursesInterface:
             "Commands: 'new' = new operator | 'callsign' = show callsign | "
             "'quit' or ESC = exit", is_bot=False)
         self.chat_interface.add_message("SYSTEM",
-            "Press TAB to toggle bot message visibility | Arrow keys to scroll",
-            is_bot=False)
+            "Press TAB to toggle bot message visibility | Arrow keys to scroll | "
+            "SPACE to pause/resume | Ctrl-C to quit", is_bot=False)
         self.chat_interface.add_message("SYSTEM",
             "Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!",
             is_bot=False)
 
     def _play_morse_async(self, text: str):
-        """Play Morse code in a background thread."""
+        """Play Morse code in a background thread with pause/resume support."""
         def play():
             self.morse_playing = True
+            self.morse_paused = False
             try:
-                self.morse_generator.play(text)
+                self.morse_generator.play_with_controls(text)
             finally:
                 self.morse_playing = False
+                self.morse_paused = False
 
-        thread = threading.Thread(target=play, daemon=True)
-        thread.start()
+        self.playback_thread = threading.Thread(target=play, daemon=True)
+        self.playback_thread.start()
+
+    def _toggle_pause(self):
+        """Toggle pause/resume of Morse playback."""
+        if not self.morse_playing:
+            return
+
+        if self.morse_paused:
+            # Resume
+            self.morse_generator.set_control_command(PlaybackControl.CONTINUE)
+            self.morse_paused = False
+        else:
+            # Pause
+            self.morse_generator.set_control_command(PlaybackControl.PAUSE)
+            self.morse_paused = True
 
     def _handle_command(self, command: str) -> bool:
         """
@@ -166,6 +184,15 @@ class CWBotCursesInterface:
                 # ESC key to quit
                 if key == 27:
                     break
+
+                # Ctrl-C to quit
+                if key == 3:  # Ctrl-C
+                    break
+
+                # Spacebar to pause/resume
+                if key == ord(' '):
+                    self._toggle_pause()
+                    continue
 
                 # Handle input
                 message = self.chat_interface.handle_input(key)
