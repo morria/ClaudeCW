@@ -9,3 +9,6 @@ pyaudio>=0.2.14
 
 # Configuration file handling
 pyyaml>=6.0
+
+# Keyboard input handling
+pynput>=1.7.0

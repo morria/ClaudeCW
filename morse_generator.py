@@ -4,8 +4,19 @@ Generates CW (Continuous Wave) audio signals from text.
 """
 
 import numpy as np
-from typing import Optional
+from typing import Optional, List, Tuple
 import pyaudio
+import threading
+from enum import Enum
+
+
+class PlaybackControl(Enum):
+    """Playback control commands."""
+    CONTINUE = 0
+    PAUSE = 1
+    STOP = 2
+    BACKUP = 3
+    SHUTDOWN = 4
 
 
 class MorseGenerator:
@@ -60,7 +71,11 @@ class MorseGenerator:
         self.audio = pyaudio.PyAudio()
         self.stream = None
 
-        # Interrupt flag for stopping playback
+        # Keyboard control state
+        self.control_command = PlaybackControl.CONTINUE
+        self.control_lock = threading.Lock()
+
+        # Interrupt flag for backwards compatibility
         self.interrupted = False
 
     def _generate_tone(self, duration: float) -> np.ndarray:
@@ -172,6 +187,159 @@ class MorseGenerator:
     def stop(self) -> None:
         """Stop the current playback."""
         self.interrupted = True
+        self.set_control_command(PlaybackControl.STOP)
+
+    def _generate_word_audio(self, word: str, add_word_space: bool = True) -> np.ndarray:
+        """
+        Generate audio for a single word.
+
+        Args:
+            word: The word to generate audio for
+            add_word_space: Whether to add word spacing after the word
+
+        Returns:
+            Audio data as numpy array
+        """
+        audio_data = []
+
+        for i, char in enumerate(word.upper()):
+            if char not in self.MORSE_CODE or char == ' ':
+                continue
+
+            morse = self.MORSE_CODE[char]
+
+            # Generate the character
+            for j, symbol in enumerate(morse):
+                if symbol == '.':
+                    audio_data.append(self._generate_tone(self.dit_duration))
+                elif symbol == '-':
+                    audio_data.append(self._generate_tone(self.dah_duration))
+
+                # Add inter-element space (between dits/dahs)
+                if j < len(morse) - 1:
+                    audio_data.append(self._generate_silence(self.dit_duration))
+
+            # Add inter-character space (if not last character)
+            if i < len(word) - 1:
+                audio_data.append(self._generate_silence(self.char_space_duration))
+
+        # Add word space at the end if requested
+        if add_word_space and audio_data:
+            audio_data.append(self._generate_silence(self.word_space_duration))
+
+        return np.concatenate(audio_data) if audio_data else np.array([], dtype=np.int16)
+
+    def _split_into_words(self, text: str) -> List[str]:
+        """Split text into words, preserving spaces as separate elements."""
+        words = []
+        current_word = []
+
+        for char in text:
+            if char == ' ':
+                if current_word:
+                    words.append(''.join(current_word))
+                    current_word = []
+            else:
+                current_word.append(char)
+
+        # Add the last word if any
+        if current_word:
+            words.append(''.join(current_word))
+
+        return words
+
+    def set_control_command(self, command: PlaybackControl) -> None:
+        """Set the control command for playback."""
+        with self.control_lock:
+            self.control_command = command
+
+    def get_control_command(self) -> PlaybackControl:
+        """Get the current control command."""
+        with self.control_lock:
+            return self.control_command
+
+    def play_with_controls(self, text: str, on_control: Optional[callable] = None) -> PlaybackControl:
+        """
+        Play Morse code with support for keyboard controls.
+
+        Args:
+            text: The text to play
+            on_control: Optional callback for control events
+
+        Returns:
+            The final control command that stopped playback
+        """
+        if not text.strip():
+            return PlaybackControl.CONTINUE
+
+        # Reset control state
+        self.set_control_command(PlaybackControl.CONTINUE)
+
+        # Split text into words
+        words = self._split_into_words(text)
+        if not words:
+            return PlaybackControl.CONTINUE
+
+        # Open stream if not already open
+        if self.stream is None:
+            self.stream = self.audio.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=self.sample_rate,
+                output=True
+            )
+
+        word_index = 0
+
+        while word_index < len(words):
+            # Check control command
+            cmd = self.get_control_command()
+
+            if cmd == PlaybackControl.STOP:
+                if on_control:
+                    on_control(cmd)
+                return cmd
+
+            if cmd == PlaybackControl.SHUTDOWN:
+                if on_control:
+                    on_control(cmd)
+                return cmd
+
+            if cmd == PlaybackControl.BACKUP:
+                # Back up one word
+                word_index = max(0, word_index - 1)
+                self.set_control_command(PlaybackControl.CONTINUE)
+                if on_control:
+                    on_control(cmd)
+                continue
+
+            if cmd == PlaybackControl.PAUSE:
+                # Wait until unpaused
+                import time
+                time.sleep(0.05)
+                continue
+
+            # Play the current word
+            word = words[word_index]
+            is_last_word = (word_index == len(words) - 1)
+            audio_data = self._generate_word_audio(word, add_word_space=not is_last_word)
+
+            if len(audio_data) > 0:
+                # Play in smaller chunks to be more responsive
+                chunk_size = self.sample_rate // 10  # 100ms chunks
+                for i in range(0, len(audio_data), chunk_size):
+                    # Check for pause or stop between chunks
+                    cmd = self.get_control_command()
+                    if cmd in (PlaybackControl.PAUSE, PlaybackControl.STOP,
+                              PlaybackControl.SHUTDOWN, PlaybackControl.BACKUP):
+                        break
+
+                    chunk = audio_data[i:i+chunk_size]
+                    self.stream.write(chunk.tobytes())
+
+            word_index += 1
+
+        return PlaybackControl.CONTINUE
 
     def close(self) -> None:
         """Clean up audio resources."""

@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Optional
 import signal
 
-from morse_generator import MorseGenerator
+from morse_generator import MorseGenerator, PlaybackControl
 from radio_operator import RadioOperator
+from pynput import keyboard
 
 
 class CWPracticeBot:
@@ -31,6 +32,8 @@ class CWPracticeBot:
         self.morse_generator: Optional[MorseGenerator] = None
         self.operator: Optional[RadioOperator] = None
         self.running = False
+        self.keyboard_listener: Optional[keyboard.Listener] = None
+        self.is_paused = False
 
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file."""
@@ -50,16 +53,62 @@ class CWPracticeBot:
             print("\n\n[Interrupted]")
             self.running = False
 
-            # Stop any ongoing audio playback
+            # Stop any ongoing audio playback using the new control system
             if self.morse_generator:
-                self.morse_generator.stop()
-                self.morse_generator.close()
+                self.morse_generator.set_control_command(PlaybackControl.SHUTDOWN)
 
             print("73! (Exiting...)")
-            sys.exit(0)
+            # Don't exit immediately, let cleanup happen in finally block
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+    def _on_key_press(self, key) -> None:
+        """
+        Handle keyboard input during CW playback.
+
+        Controls:
+            spacebar: pause/resume
+            '<': backup one word
+            return: stop transmission and await input
+            ctrl-c: end transmission and shutdown (handled by signal handler)
+        """
+        try:
+            # Handle character keys
+            if hasattr(key, 'char') and key.char is not None:
+                if key.char == ' ':
+                    # Toggle pause
+                    self.is_paused = not self.is_paused
+                    if self.is_paused:
+                        self.morse_generator.set_control_command(PlaybackControl.PAUSE)
+                        print("\n[Paused - press spacebar to resume]")
+                    else:
+                        self.morse_generator.set_control_command(PlaybackControl.CONTINUE)
+                        print("[Resumed]")
+                elif key.char == '<':
+                    # Backup one word
+                    self.morse_generator.set_control_command(PlaybackControl.BACKUP)
+                    print("\n[Backing up one word...]")
+
+            # Handle special keys
+            if key == keyboard.Key.enter:
+                # Stop transmission
+                self.morse_generator.set_control_command(PlaybackControl.STOP)
+                print("\n[Transmission stopped]")
+        except AttributeError:
+            pass
+
+    def _start_keyboard_listener(self) -> None:
+        """Start the keyboard listener for playback controls."""
+        if self.keyboard_listener is None or not self.keyboard_listener.running:
+            self.keyboard_listener = keyboard.Listener(on_press=self._on_key_press)
+            self.keyboard_listener.start()
+
+    def _stop_keyboard_listener(self) -> None:
+        """Stop the keyboard listener."""
+        if self.keyboard_listener is not None and self.keyboard_listener.running:
+            self.keyboard_listener.stop()
+            self.keyboard_listener = None
 
     def _print_header(self) -> None:
         """Print the welcome header."""
@@ -79,27 +128,51 @@ class CWPracticeBot:
         print("  'new' - Start a new conversation with a new operator")
         print("  'callsign' - Show the current operator's callsign")
         print()
+        print("Playback Controls (during CW transmission):")
+        print("  Spacebar - Pause/Resume")
+        print("  '<' - Backup one word")
+        print("  Return - Stop transmission and await input")
+        print("  Ctrl-C - End transmission and shutdown")
+        print()
         print("Tip: Try starting with 'CQ CQ CQ DE <your callsign>' or just say hello!")
         print("=" * 70)
         print()
 
-    def _send_message(self, message: str, is_first: bool = False) -> None:
+    def _send_message(self, message: str, is_first: bool = False) -> bool:
         """
         Send a message and get a response.
 
         Args:
             message: The user's message
             is_first: Whether this is the first message
+
+        Returns:
+            True if should continue, False if should shutdown
         """
         # Get AI response
         print(f"\n[{self.operator.get_callsign()}]: ", end='', flush=True)
         response = self.operator.get_response(message, is_first_message=is_first)
         print(response)
 
-        # Play the response in Morse code
-        print("\n[Playing CW...]")
-        self.morse_generator.play(response)
-        print("[CW transmission complete]\n")
+        # Reset pause state
+        self.is_paused = False
+
+        # Play the response in Morse code with controls
+        print("\n[Playing CW... (spacebar=pause, <=backup, return=stop, ctrl-c=shutdown)]")
+        self._start_keyboard_listener()
+
+        result = self.morse_generator.play_with_controls(response)
+
+        # Handle the result
+        if result == PlaybackControl.SHUTDOWN:
+            print("\n[Shutdown requested]")
+            return False
+        elif result == PlaybackControl.STOP:
+            print("[CW transmission stopped]\n")
+        else:
+            print("[CW transmission complete]\n")
+
+        return True
 
     def run(self) -> None:
         """Run the main bot loop."""
@@ -155,7 +228,9 @@ class CWPracticeBot:
                         continue
 
                     # Send message and get response
-                    self._send_message(user_input, is_first=is_first_message)
+                    should_continue = self._send_message(user_input, is_first=is_first_message)
+                    if not should_continue:
+                        break
                     is_first_message = False
 
                 except EOFError:
@@ -166,8 +241,13 @@ class CWPracticeBot:
 
         finally:
             # Cleanup
+            self._stop_keyboard_listener()
             if self.morse_generator:
                 self.morse_generator.close()
+
+            # Exit if running was set to False
+            if not self.running:
+                sys.exit(0)
 
 
 def main():
