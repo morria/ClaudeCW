@@ -75,6 +75,9 @@ class MorseGenerator:
         self.control_command = PlaybackControl.CONTINUE
         self.control_lock = threading.Lock()
 
+        # Interrupt flag for backwards compatibility
+        self.interrupted = False
+
     def _generate_tone(self, duration: float) -> np.ndarray:
         """Generate a sine wave tone."""
         samples = int(self.sample_rate * duration)
@@ -152,6 +155,9 @@ class MorseGenerator:
         if not text.strip():
             return
 
+        # Reset interrupt flag
+        self.interrupted = False
+
         audio_data = self.generate_audio(text)
 
         if len(audio_data) == 0:
@@ -166,8 +172,22 @@ class MorseGenerator:
                 output=True
             )
 
-        # Play the audio
-        self.stream.write(audio_data.tobytes())
+        # Play the audio in chunks to allow interruption
+        chunk_size = self.sample_rate // 4  # 0.25 second chunks
+        audio_bytes = audio_data.tobytes()
+        bytes_per_sample = 2  # paInt16 = 2 bytes per sample
+        chunk_bytes = chunk_size * bytes_per_sample
+
+        for i in range(0, len(audio_bytes), chunk_bytes):
+            if self.interrupted:
+                break
+            chunk = audio_bytes[i:i + chunk_bytes]
+            self.stream.write(chunk)
+
+    def stop(self) -> None:
+        """Stop the current playback."""
+        self.interrupted = True
+        self.set_control_command(PlaybackControl.STOP)
 
     def _generate_word_audio(self, word: str, add_word_space: bool = True) -> np.ndarray:
         """

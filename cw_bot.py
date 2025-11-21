@@ -50,13 +50,15 @@ class CWPracticeBot:
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
         def signal_handler(sig, frame):
-            # If we're playing CW, signal shutdown to stop playback
+            print("\n\n[Interrupted]")
+            self.running = False
+
+            # Stop any ongoing audio playback using the new control system
             if self.morse_generator:
                 self.morse_generator.set_control_command(PlaybackControl.SHUTDOWN)
-            print("\n\n73! (Exiting...)")
-            self.running = False
-            # Don't exit immediately, let cleanup happen
-            # sys.exit(0) will be called after cleanup
+
+            print("73! (Exiting...)")
+            # Don't exit immediately, let cleanup happen in finally block
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
