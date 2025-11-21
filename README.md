@@ -10,6 +10,7 @@ An interactive Morse code (CW) practice tool that uses Claude AI to simulate rea
 - **Realistic Behavior**: The bot calls CQ, uses proper procedures, and follows ham radio conventions
 - **Unique Callsigns**: Generates realistic callsigns from various countries for each conversation
 - **Standard Abbreviations**: Uses authentic ham radio Q-codes and abbreviations (RST, QTH, WX, etc.)
+- **Curses Chat Interface**: Optional Slack-like terminal interface with hidden bot messages for practice
 
 ## Requirements
 
@@ -55,7 +56,9 @@ audio:
 
 ## Usage
 
-Run the bot:
+### Standard Terminal Interface
+
+Run the bot with the standard text interface:
 ```bash
 python3 cw_bot.py
 ```
@@ -65,13 +68,31 @@ Or with a custom config file:
 python3 cw_bot.py my_config.yaml
 ```
 
+### Curses Chat Interface (Recommended)
+
+For a more immersive experience, use the Slack-like curses interface:
+```bash
+python3 cw_bot_curses.py
+```
+
+The curses interface features:
+- **Chat History**: Scrollable conversation log in the upper area
+- **Input Line**: Bottom row for typing your messages
+- **Hidden Bot Messages**: Bot responses are displayed as block characters (███) by default
+- **Tab Toggle**: Press TAB to toggle between hidden and visible bot messages
+- **Scrolling**: Use arrow keys (↑/↓) or Page Up/Down to scroll through history
+- **Better Visual Organization**: Clear separation between messages and color coding
+
+This interface is ideal for CW practice - you can listen to the Morse code and try to copy it before revealing the text!
+
 ### Commands
 
 While running:
 - Type your message and press Enter to transmit
-- `quit` or `exit` - End the session
+- `quit` or `exit` - End the session (or press ESC in curses mode)
 - `new` - Start a new conversation with a new operator (new callsign)
 - `callsign` - Show the current operator's callsign
+- **TAB** (curses mode only) - Toggle bot message visibility
 
 ### Example Session
 
@@ -139,7 +160,9 @@ The AI operator behaves like a real ham radio operator:
 
 ```
 ClaudeCW/
-├── cw_bot.py          # Main application
+├── cw_bot.py          # Main application (standard terminal interface)
+├── cw_bot_curses.py   # Curses-based chat interface (recommended)
+├── curses_chat.py     # Curses UI components
 ├── morse_generator.py # Morse code audio generation
 ├── radio_operator.py  # Claude AI integration
 ├── config.yaml        # Configuration file
