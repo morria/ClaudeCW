@@ -47,8 +47,15 @@ class CWPracticeBot:
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
         def signal_handler(sig, frame):
-            print("\n\n73! (Exiting...)")
+            print("\n\n[Interrupted]")
             self.running = False
+
+            # Stop any ongoing audio playback
+            if self.morse_generator:
+                self.morse_generator.stop()
+                self.morse_generator.close()
+
+            print("73! (Exiting...)")
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
