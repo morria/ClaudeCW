@@ -108,27 +108,28 @@ class CursesChatInterface:
         callsign = self.operator.get_callsign()
 
         welcome = "═" * 70
-        self.add_message("SYSTEM", welcome, is_bot=False)
-        self.add_message("SYSTEM", "Amateur Radio CW Practice Bot - Curses Interface".center(70), is_bot=False)
-        self.add_message("SYSTEM", welcome, is_bot=False)
-        self.add_message("SYSTEM", "", is_bot=False)
-        self.add_message("SYSTEM",
-            f"Configuration: {self.config['morse']['wpm']} WPM | "
-            f"Operator: {callsign}", is_bot=False)
-        self.add_message("SYSTEM", "", is_bot=False)
-        self.add_message("SYSTEM", "Commands:", is_bot=False)
-        self.add_message("SYSTEM", "  'new' - Start new conversation with new operator", is_bot=False)
-        self.add_message("SYSTEM", "  'callsign' - Show current operator's callsign", is_bot=False)
-        self.add_message("SYSTEM", "  'quit' or ESC - Exit", is_bot=False)
-        self.add_message("SYSTEM", "", is_bot=False)
-        self.add_message("SYSTEM", "Controls:", is_bot=False)
-        self.add_message("SYSTEM", "  TAB - Toggle bot message visibility", is_bot=False)
-        self.add_message("SYSTEM", "  Ctrl-P - Pause/Resume CW playback", is_bot=False)
-        self.add_message("SYSTEM", "  Ctrl-B - Pause 1s and go back one word", is_bot=False)
-        self.add_message("SYSTEM", "  Arrow Keys - Scroll chat history", is_bot=False)
-        self.add_message("SYSTEM", "", is_bot=False)
-        self.add_message("SYSTEM", "Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!", is_bot=False)
-        self.add_message("SYSTEM", welcome, is_bot=False)
+        title = "Amateur Radio CW Practice Bot - Curses Interface".center(70)
+        help_text = f"""{welcome}
+{title}
+{welcome}
+
+Configuration: {self.config['morse']['wpm']} WPM | Operator: {callsign}
+
+Commands:
+  'new' - Start new conversation with new operator
+  'callsign' - Show current operator's callsign
+  'quit' or ESC - Exit
+
+Controls:
+  TAB - Toggle bot message visibility
+  Ctrl-P - Pause/Resume CW playback
+  Ctrl-B - Pause 1s and go back one word
+  Arrow Keys - Scroll chat history
+
+Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
+{welcome}"""
+
+        self.add_message("SYSTEM", help_text, is_bot=False)
 
     def add_message(self, sender: str, text: str, is_bot: bool = False):
         """
