@@ -513,6 +513,9 @@ class CursesChatInterface:
                     # Add user message to chat
                     self.add_message("You", message, is_bot=False)
 
+                    # Immediately refresh display to show cleared input and user message
+                    self.refresh_display()
+
                     # Send message and get response
                     self._send_message(message)
 
