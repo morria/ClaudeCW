@@ -58,17 +58,24 @@ class CursesChatInterface:
         self.morse_paused = False
         self.playback_thread: Optional[threading.Thread] = None
 
+        # Word highlighting state
+        self.current_word_index = -1
+        self.current_word_total = 0
+        self.current_playing_message_index = -1
+        self.word_highlight_lock = threading.Lock()
+
         # Initialize colors
         curses.start_color()
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # User messages
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Bot messages
         curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Input line
         curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLUE)    # Status bar
+        curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_GREEN)   # Highlighted word
 
         # Configure curses
         curses.curs_set(1)  # Show cursor
         self.stdscr.keypad(True)
-        self.stdscr.nodelay(False)  # Blocking mode for getch
+        self.stdscr.timeout(100)  # 100ms timeout for getch to allow periodic refresh
 
         # Setup components
         self._setup_components()
@@ -121,10 +128,13 @@ Commands:
   'quit'     - Exit (or press ESC)
 
 Controls:
-  TAB        - Toggle bot message visibility
-  Ctrl-P     - Pause/Resume CW playback
-  Ctrl-B     - Pause 1s and go back one word
-  Arrow Keys - Scroll chat history
+  TAB           - Toggle bot message visibility
+  Ctrl-P        - Pause/Resume CW playback
+  Ctrl-B / ←    - Pause 1s and go back one word
+  Ctrl-F / →    - Pause 1s and skip forward one word
+  ↑ / ↓         - Scroll chat history
+
+Note: ← / → navigate words only during CW playback
 
 Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
 {welcome}"""
@@ -146,18 +156,33 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
 
         # Play CW for bot messages (but not SYSTEM messages)
         if is_bot and sender != "SYSTEM" and self.morse_generator:
-            self._play_morse_async(text)
+            # Track which message is being played
+            message_index = len(self.messages) - 1
+            self._play_morse_async(text, message_index)
 
-    def _play_morse_async(self, text: str):
+    def _play_morse_async(self, text: str, message_index: int):
         """Play Morse code in a background thread with pause/resume support."""
+        def on_word_change(word_index: int, total_words: int):
+            """Callback when word position changes during playback."""
+            with self.word_highlight_lock:
+                self.current_word_index = word_index
+                self.current_word_total = total_words
+                self.current_playing_message_index = message_index
+
         def play():
             self.morse_playing = True
             self.morse_paused = False
+            with self.word_highlight_lock:
+                self.current_playing_message_index = message_index
+                self.current_word_index = 0
             try:
-                self.morse_generator.play_with_controls(text)
+                self.morse_generator.play_with_controls(text, on_word_change=on_word_change)
             finally:
                 self.morse_playing = False
                 self.morse_paused = False
+                with self.word_highlight_lock:
+                    self.current_word_index = -1
+                    self.current_playing_message_index = -1
 
         self.playback_thread = threading.Thread(target=play, daemon=True)
         self.playback_thread.start()
@@ -196,23 +221,48 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
 
         threading.Thread(target=resume_after_delay, daemon=True).start()
 
-    def _get_display_lines(self) -> List[Tuple[str, int]]:
+    def _forward_word(self):
+        """Pause for 1 second and skip forward one word."""
+        if not self.morse_playing:
+            return
+
+        # Forward one word
+        self.morse_generator.set_control_command(PlaybackControl.FORWARD)
+        # Pause for 1 second
+        self.morse_generator.set_control_command(PlaybackControl.PAUSE)
+        self.morse_paused = True
+
+        # Resume after 1 second (in a background thread so we don't block UI)
+        def resume_after_delay():
+            time.sleep(1.0)
+            if self.morse_paused:
+                self.morse_generator.set_control_command(PlaybackControl.CONTINUE)
+                self.morse_paused = False
+
+        threading.Thread(target=resume_after_delay, daemon=True).start()
+
+    def _get_display_lines(self) -> List[Tuple]:
         """
-        Get the formatted display lines with color pairs.
+        Get the formatted display lines with color pairs and highlighting.
 
         Returns:
-            List of (line_text, color_pair) tuples
+            List of tuples with line formatting information
         """
         height, width = self.stdscr.getmaxyx()
         chat_height = height - 2  # Reserve 2 lines for input and separator
 
         lines = []
 
-        for msg in self.messages:
+        # Get current word highlighting state
+        with self.word_highlight_lock:
+            highlight_msg_idx = self.current_playing_message_index
+            highlight_word_idx = self.current_word_index
+
+        for msg_idx, msg in enumerate(self.messages):
             # Format sender
             sender_line = f"[{msg.sender}]"
             color = 2 if msg.is_bot else 1
-            lines.append((sender_line, color))
+            lines.append((sender_line, color, None))
 
             # Format message text
             if msg.is_bot and not self.show_bot_messages:
@@ -221,20 +271,108 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
                     ' ' if c == ' ' or c == '\n' else self.BLOCK_CHAR
                     for c in msg.text
                 )
+                # Wrap text to fit width, preserving explicit newlines
+                for paragraph in display_text.split('\n'):
+                    if paragraph:  # Non-empty lines
+                        wrapped = textwrap.wrap(paragraph, width - 2) or ['']
+                        for line in wrapped:
+                            lines.append((f"  {line}", color, None))
+                    else:  # Empty lines (preserve blank lines)
+                        lines.append(("", color, None))
             else:
-                display_text = msg.text
+                # Show text normally, potentially with word highlighting
+                should_highlight = (msg_idx == highlight_msg_idx and
+                                   highlight_word_idx >= 0 and
+                                   msg.is_bot)
 
-            # Wrap text to fit width, preserving explicit newlines
-            for paragraph in display_text.split('\n'):
-                if paragraph:  # Non-empty lines
-                    wrapped = textwrap.wrap(paragraph, width - 2) or ['']
-                    for line in wrapped:
-                        lines.append((f"  {line}", color))
-                else:  # Empty lines (preserve blank lines)
-                    lines.append(("", color))
+                if should_highlight:
+                    # Split message into words to find the one to highlight
+                    words = self._split_into_words(msg.text)
+                    if highlight_word_idx < len(words):
+                        # Render with word highlighting
+                        lines.extend(self._render_text_with_highlight(
+                            msg.text, words, highlight_word_idx, color, width - 2))
+                    else:
+                        # Just render normally if index out of range
+                        lines.extend(self._render_text_simple(msg.text, color, width - 2))
+                else:
+                    # Render without highlighting
+                    lines.extend(self._render_text_simple(msg.text, color, width - 2))
 
             # Add blank line between messages
-            lines.append(("", 0))
+            lines.append(("", 0, None))
+
+        return lines
+
+    def _split_into_words(self, text: str) -> List[str]:
+        """Split text into words (same logic as morse_generator)."""
+        words = []
+        current_word = []
+
+        for char in text:
+            if char == ' ' or char == '\n':
+                if current_word:
+                    words.append(''.join(current_word))
+                    current_word = []
+            else:
+                current_word.append(char)
+
+        if current_word:
+            words.append(''.join(current_word))
+
+        return words
+
+    def _render_text_simple(self, text: str, color: int, max_width: int) -> List[Tuple]:
+        """Render text without highlighting."""
+        lines = []
+        for paragraph in text.split('\n'):
+            if paragraph:
+                wrapped = textwrap.wrap(paragraph, max_width) or ['']
+                for line in wrapped:
+                    lines.append((f"  {line}", color, None))
+            else:
+                lines.append(("", color, None))
+        return lines
+
+    def _render_text_with_highlight(self, text: str, words: List[str],
+                                    highlight_idx: int, color: int,
+                                    max_width: int) -> List[Tuple]:
+        """Render text with one word highlighted."""
+        lines = []
+
+        # Reconstruct text with marker around highlighted word
+        word_idx = 0
+        result_parts = []
+        i = 0
+
+        while i < len(text):
+            if text[i] in (' ', '\n'):
+                result_parts.append(text[i])
+                i += 1
+            else:
+                # Start of a word
+                word_start = i
+                while i < len(text) and text[i] not in (' ', '\n'):
+                    i += 1
+                word = text[word_start:i]
+
+                if word_idx == highlight_idx:
+                    # Mark this word for highlighting
+                    result_parts.append(f'\x00{word}\x01')
+                else:
+                    result_parts.append(word)
+                word_idx += 1
+
+        marked_text = ''.join(result_parts)
+
+        # Now wrap and render with highlighting
+        for paragraph in marked_text.split('\n'):
+            if paragraph:
+                wrapped = textwrap.wrap(paragraph, max_width) or ['']
+                for line in wrapped:
+                    lines.append((f"  {line}", color, 5))  # color 5 is highlight color
+            else:
+                lines.append(("", color, None))
 
         return lines
 
@@ -254,15 +392,27 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
 
         # Draw lines from bottom up
         y = chat_height - 1
-        for line_text, color_pair in reversed(visible_lines):
+        for line_data in reversed(visible_lines):
             if y < 0:
                 break
+
+            line_text = line_data[0]
+            color_pair = line_data[1]
+            highlight_color = line_data[2] if len(line_data) > 2 else None
+
             self.stdscr.move(y, 0)
             self.stdscr.clrtoeol()
-            if color_pair > 0:
-                self.stdscr.addstr(y, 0, line_text[:width-1], curses.color_pair(color_pair))
+
+            # Check if this line contains highlighted word markers
+            if highlight_color is not None and '\x00' in line_text and '\x01' in line_text:
+                # Render with highlighting
+                self._draw_line_with_highlight(y, line_text, color_pair, highlight_color, width)
             else:
-                self.stdscr.addstr(y, 0, line_text[:width-1])
+                # Render normally
+                if color_pair > 0:
+                    self.stdscr.addstr(y, 0, line_text[:width-1], curses.color_pair(color_pair))
+                else:
+                    self.stdscr.addstr(y, 0, line_text[:width-1])
             y -= 1
 
         # Clear any remaining lines at top
@@ -270,6 +420,37 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
             self.stdscr.move(y, 0)
             self.stdscr.clrtoeol()
             y -= 1
+
+    def _draw_line_with_highlight(self, y: int, text: str, normal_color: int,
+                                  highlight_color: int, width: int):
+        """Draw a line with highlighted word."""
+        x = 0
+        i = 0
+        while i < len(text) and x < width - 1:
+            if text[i] == '\x00':
+                # Start of highlighted word
+                i += 1
+                word_start = i
+                while i < len(text) and text[i] != '\x01':
+                    i += 1
+                word = text[word_start:i]
+                if i < len(text):
+                    i += 1  # Skip \x01
+
+                # Draw highlighted word
+                try:
+                    self.stdscr.addstr(y, x, word[:width-1-x], curses.color_pair(highlight_color))
+                except curses.error:
+                    pass
+                x += len(word)
+            else:
+                # Normal character
+                try:
+                    self.stdscr.addstr(y, x, text[i], curses.color_pair(normal_color))
+                except curses.error:
+                    pass
+                x += 1
+                i += 1
 
     def _draw_separator(self):
         """Draw separator line between chat and input."""
@@ -416,6 +597,21 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
             self._backup_word()
             return ""
 
+        # Ctrl-F (6) - Forward word
+        if key == 6:
+            self._forward_word()
+            return ""
+
+        # Left arrow - go back one word if playing, otherwise move cursor
+        if key == curses.KEY_LEFT and self.morse_playing:
+            self._backup_word()
+            return ""
+
+        # Right arrow - skip forward one word if playing, otherwise move cursor
+        if key == curses.KEY_RIGHT and self.morse_playing:
+            self._forward_word()
+            return ""
+
         if key == ord('\n'):  # Enter key
             message = self.input_buffer
             self.input_buffer = ""
@@ -498,6 +694,10 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
 
             try:
                 key = self.stdscr.getch()
+
+                # Timeout (no key pressed) - just continue to refresh
+                if key == -1:
+                    continue
 
                 # ESC key to quit
                 if key == 27:
