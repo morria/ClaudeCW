@@ -16,7 +16,8 @@ class PlaybackControl(Enum):
     PAUSE = 1
     STOP = 2
     BACKUP = 3
-    SHUTDOWN = 4
+    FORWARD = 4
+    SHUTDOWN = 5
 
 
 class MorseGenerator:
@@ -258,13 +259,15 @@ class MorseGenerator:
         with self.control_lock:
             return self.control_command
 
-    def play_with_controls(self, text: str, on_control: Optional[callable] = None) -> PlaybackControl:
+    def play_with_controls(self, text: str, on_control: Optional[callable] = None,
+                          on_word_change: Optional[callable] = None) -> PlaybackControl:
         """
         Play Morse code with support for keyboard controls.
 
         Args:
             text: The text to play
             on_control: Optional callback for control events
+            on_word_change: Optional callback when word position changes, receives (word_index, total_words)
 
         Returns:
             The final control command that stopped playback
@@ -290,8 +293,14 @@ class MorseGenerator:
             )
 
         word_index = 0
+        last_reported_index = -1
 
         while word_index < len(words):
+            # Report word change if callback provided and index changed
+            if on_word_change and word_index != last_reported_index:
+                on_word_change(word_index, len(words))
+                last_reported_index = word_index
+
             # Check control command
             cmd = self.get_control_command()
 
@@ -308,6 +317,14 @@ class MorseGenerator:
             if cmd == PlaybackControl.BACKUP:
                 # Back up one word
                 word_index = max(0, word_index - 1)
+                self.set_control_command(PlaybackControl.CONTINUE)
+                if on_control:
+                    on_control(cmd)
+                continue
+
+            if cmd == PlaybackControl.FORWARD:
+                # Skip forward one word
+                word_index = min(len(words) - 1, word_index + 1)
                 self.set_control_command(PlaybackControl.CONTINUE)
                 if on_control:
                     on_control(cmd)
@@ -331,7 +348,8 @@ class MorseGenerator:
                     # Check for pause or stop between chunks
                     cmd = self.get_control_command()
                     if cmd in (PlaybackControl.PAUSE, PlaybackControl.STOP,
-                              PlaybackControl.SHUTDOWN, PlaybackControl.BACKUP):
+                              PlaybackControl.SHUTDOWN, PlaybackControl.BACKUP,
+                              PlaybackControl.FORWARD):
                         break
 
                     chunk = audio_data[i:i+chunk_size]
