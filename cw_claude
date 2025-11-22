@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""
+ClaudeCW - Amateur Radio CW Practice Bot
+Executable entry point for the curses chat interface.
+"""
+
+import sys
+import curses
+
+# Add the parent directory to the path to allow importing claudecw
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from claudecw.curses_chat import main
+
+if __name__ == "__main__":
+    curses.wrapper(main)

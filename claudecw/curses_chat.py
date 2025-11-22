@@ -14,8 +14,8 @@ from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
-from morse_generator import MorseGenerator, PlaybackControl
-from radio_operator import RadioOperator
+from .morse_generator import MorseGenerator, PlaybackControl
+from .radio_operator import RadioOperator
 
 
 @dataclass

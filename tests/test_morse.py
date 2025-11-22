@@ -3,7 +3,7 @@
 Simple test to verify Morse code generation without audio playback.
 """
 
-from morse_generator import MorseGenerator
+from claudecw.morse_generator import MorseGenerator
 
 def test_morse_conversion():
     """Test text to Morse code conversion."""
