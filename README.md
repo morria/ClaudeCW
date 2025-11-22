@@ -22,7 +22,12 @@ An interactive Morse code (CW) practice tool that uses Claude AI to simulate rea
 
 1. Clone this repository or download the files
 
-2. Install the required dependencies:
+2. Install the package and its dependencies:
+```bash
+pip install -e .
+```
+
+Or install just the dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -56,24 +61,29 @@ audio:
 
 ## Usage
 
-### Standard Terminal Interface
+### Running the Application
 
-Run the bot with the standard text interface:
+Run the curses chat interface using the executable script:
 ```bash
-python3 cw_bot.py
+./cw_claude
 ```
 
-Or with a custom config file:
+Or using the package directly:
 ```bash
-python3 cw_bot.py my_config.yaml
+python -m claudecw
 ```
 
-### Curses Chat Interface (Recommended)
-
-For a more immersive experience, use the Slack-like curses interface:
+If you installed the package with pip, you can also use:
 ```bash
-python3 cw_bot_curses.py
+cw_claude
 ```
+
+You can specify a custom config file as an argument:
+```bash
+./cw_claude my_config.yaml
+```
+
+### Interface Features
 
 The curses interface features:
 - **Chat History**: Scrollable conversation log in the upper area
@@ -160,14 +170,23 @@ The AI operator behaves like a real ham radio operator:
 
 ```
 ClaudeCW/
-├── cw_bot.py          # Main application (standard terminal interface)
-├── cw_bot_curses.py   # Curses-based chat interface (recommended)
-├── curses_chat.py     # Curses UI components
-├── morse_generator.py # Morse code audio generation
-├── radio_operator.py  # Claude AI integration
-├── config.yaml        # Configuration file
-├── requirements.txt   # Python dependencies
-└── README.md         # This file
+├── claudecw/              # Main package directory
+│   ├── __init__.py        # Package initialization
+│   ├── __main__.py        # Entry point for python -m claudecw
+│   ├── curses_chat.py     # Curses UI components
+│   ├── morse_generator.py # Morse code audio generation
+│   └── radio_operator.py  # Claude AI integration
+├── tests/                 # Test directory
+│   ├── __init__.py
+│   └── test_morse.py      # Morse code tests
+├── cw_claude              # Executable script
+├── setup.py               # Package setup
+├── config.yaml            # Configuration file
+├── config.yaml.example    # Example configuration
+├── requirements.txt       # Python dependencies
+├── README.md              # This file
+├── LICENSE                # License file
+└── .gitignore             # Git ignore patterns
 ```
 
 ## Troubleshooting
