@@ -113,17 +113,17 @@ class CursesChatInterface:
 {title}
 {welcome}
 
-Configuration: {self.config['morse']['wpm']} WPM | Operator: {callsign}
+Configuration: {self.config['morse']['wpm']} WPM  |  Operator: {callsign}
 
 Commands:
-  'new' - Start new conversation with new operator
+  'new'      - Start new conversation with new operator
   'callsign' - Show current operator's callsign
-  'quit' or ESC - Exit
+  'quit'     - Exit (or press ESC)
 
 Controls:
-  TAB - Toggle bot message visibility
-  Ctrl-P - Pause/Resume CW playback
-  Ctrl-B - Pause 1s and go back one word
+  TAB        - Toggle bot message visibility
+  Ctrl-P     - Pause/Resume CW playback
+  Ctrl-B     - Pause 1s and go back one word
   Arrow Keys - Scroll chat history
 
 Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
@@ -224,10 +224,14 @@ Tip: Try 'CQ CQ CQ DE <your callsign>' or just say hello!
             else:
                 display_text = msg.text
 
-            # Wrap text to fit width
-            wrapped = textwrap.wrap(display_text, width - 2) or ['']
-            for line in wrapped:
-                lines.append((f"  {line}", color))
+            # Wrap text to fit width, preserving explicit newlines
+            for paragraph in display_text.split('\n'):
+                if paragraph:  # Non-empty lines
+                    wrapped = textwrap.wrap(paragraph, width - 2) or ['']
+                    for line in wrapped:
+                        lines.append((f"  {line}", color))
+                else:  # Empty lines (preserve blank lines)
+                    lines.append(("", color))
 
             # Add blank line between messages
             lines.append(("", 0))
